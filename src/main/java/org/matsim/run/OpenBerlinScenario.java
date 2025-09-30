@@ -36,6 +36,12 @@ import playground.vsp.scoring.IncomeDependentUtilityOfMoneyPersonScoringParamete
 
 import java.util.List;
 
+// ===== new import =====
+import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.network.Link;
+import org.matsim.api.core.v01.network.Network;
+import java.util.Set;
+
 @CommandLine.Command(header = ":: Open Berlin Scenario ::", version = OpenBerlinScenario.VERSION, mixinStandardHelpOptions = true, showDefaultValues = true)
 public class OpenBerlinScenario extends MATSimApplication {
 
@@ -143,13 +149,48 @@ public class OpenBerlinScenario extends MATSimApplication {
 		return config;
 	}
 
+	// ================= only change here =================
 	@Override
 	protected void prepareScenario(Scenario scenario) {
+		// First, run the default preparation from the parent class
+		super.prepareScenario(scenario);
 
-		// add hbefa link attributes.
+		// Keep the original logic: add HBEFA attributes to the network
 		HbefaRoadTypeMapping roadTypeMapping = OsmHbefaMapping.build();
 		roadTypeMapping.addHbefaMappings(scenario.getNetwork());
+
+		// Soft-close links related to A100 Ringbahnbrücke
+		Set<String> closed = Set.of(
+			"428725175","428725174","305608389","459811452","4434516",
+			"459811453#0","4434508#0","459810102","459810103","322543975",
+			"227985279","26144116","169762615","253770355","4490226",
+			"322543973","84792456#0","4490229","4392640"
+		);
+		softCloseLinksNoModeChange(scenario.getNetwork(), closed);
 	}
+
+	/** Soft-close the given links for all modes (extremely small traffic parameters + keep allowedModes unchanged) */
+	private static void softCloseLinksNoModeChange(Network net, Set<String> ids) {
+		int ok = 0, miss = 0;
+		for (String s : ids) {
+			Link l = net.getLinks().get(Id.createLinkId(s));
+			if (l == null) {
+				System.out.println("[WARN] link not found: " + s);
+				miss++;
+				continue;
+			}
+
+			// Soft closure: set these parameters to very small values, but do not change allowedModes
+			// NOTE: these values must not be 0, otherwise division-by-zero or other errors may occur
+			l.setFreespeed(0.001);      // m/s — almost impossible to move
+			l.setCapacity(1e-3);        // veh/h — extremely small capacity
+			l.setNumberOfLanes(1e-3);   // ~0 lanes
+
+			ok++;
+		}
+		System.out.println("[INFO] soft-closed links: " + ok + ", missing: " + miss);
+	}
+// ===========================================================================
 
 	@Override
 	protected void prepareControler(Controler controler) {
@@ -201,7 +242,6 @@ public class OpenBerlinScenario extends MATSimApplication {
 				addTravelTimeBinding("freight").to(Key.get(TravelTime.class, Names.named(TransportMode.truck)));
 				addTravelDisutilityFactoryBinding("freight").to(Key.get(TravelDisutilityFactory.class, Names.named(TransportMode.truck)));
 
-
 				bind(BicycleLinkSpeedCalculator.class).to(BicycleLinkSpeedCalculatorDefaultImpl.class);
 
 				// Bike should use free speed travel time
@@ -210,5 +250,4 @@ public class OpenBerlinScenario extends MATSimApplication {
 			}
 		}
 	}
-
 }
